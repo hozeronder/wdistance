@@ -48,6 +48,8 @@ LocationMarker.propTypes = {
     setIsochrone: PropTypes.func.isRequired,
 };
 
+
+
 export default function IsochroneMap() {
     const [isochrone, setIsochrone] = useState([]);
 
