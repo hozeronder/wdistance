@@ -1,12 +1,16 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from 'next/server';
 
 const FASTAPI_URL = "https://wdistancebackend.vercel.app";
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const { searchParams } = new URL(request.url);
+    const searchParams = request.nextUrl.searchParams;
     const lat = searchParams.get('lat');
     const lng = searchParams.get('lng');
+
+    if (!lat || !lng) {
+      return NextResponse.json({ error: "Missing lat or lng parameters" }, { status: 400 });
+    }
 
     const response = await fetch(
       `${FASTAPI_URL}/api/isochrone?lat=${lat}&lng=${lng}`
