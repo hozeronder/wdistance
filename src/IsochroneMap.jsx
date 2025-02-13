@@ -1,18 +1,17 @@
 import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
+import PropTypes from "prop-types";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app/isochrone"; // FastAPI endpoint'i direkt kullanıyoruz.
-
-import PropTypes from "prop-types";
+const API_URL = "https://wdistancebackend.vercel.app/isochrone"; // FastAPI endpoint'i
 
 function LocationMarker({ setIsochrone }) {
-    const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
+    const [position, setPosition] = useState([40.73061, -73.935242]);
 
     useMapEvents({
         click(e) {
             setPosition([e.latlng.lat, e.latlng.lng]);
-        }, 
+        },
     });
     useEffect(() => {
         async function fetchIsochrone() {
@@ -22,13 +21,15 @@ function LocationMarker({ setIsochrone }) {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
+                        'Content-Type': 'application/json',
                     },
+                    mode: 'cors', // CORS modunu açıkça belirtiyoruz
                 });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-
+                
                 const data = await response.json();
                 if (data.geometry && data.geometry.coordinates) {
                     setIsochrone(data.geometry.coordinates[0]);
