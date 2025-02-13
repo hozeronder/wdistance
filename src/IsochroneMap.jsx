@@ -12,7 +12,7 @@ function LocationMarker({ setIsochrone }) {
     useMapEvents({
         click(e) {
             setPosition([e.latlng.lat, e.latlng.lng]);
-        },
+        }, 
     });
 
     useEffect(() => {
