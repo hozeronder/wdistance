@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app/api/index.py"; // FastAPI endpoint'i direkt kullanıyoruz.
+const API_URL = "https://wdistancebackend.vercel.app/api/isochrone"; // FastAPI endpoint'i direkt kullanıyoruz.
 
 import PropTypes from "prop-types";
 
