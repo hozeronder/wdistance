@@ -6,7 +6,6 @@ const API_URL = "https://wdistancebackend.vercel.app/isochrone"; // FastAPI endp
 
 import PropTypes from "prop-types";
 
-
 function LocationMarker({ setIsochrone }) {
     const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
 
