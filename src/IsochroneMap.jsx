@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app"; // Next.js backend API route
+const API_URL = "https://wdistancebackend.vercel.app/isochrone"; // FastAPI endpoint'i direkt kullanıyoruz
 
 import PropTypes from "prop-types";
 
@@ -19,11 +19,17 @@ function LocationMarker({ setIsochrone }) {
         async function fetchIsochrone() {
             if (!position) return;
             try {
-                const response = await fetch(`${API_URL}?lat=${position[0]}&lng=${position[1]}`);
+                const response = await fetch(`${API_URL}?lat=${position[0]}&lng=${position[1]}`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json',
+                    },
+                });
+                
                 if (!response.ok) {
-                    console.error("Failed to fetch isochrone data:", response.statusText);
-                    return; // Hata fırlatmak yerine sadece fonksiyondan çıkıyoruz
+                    throw new Error(`HTTP error! status: ${response.status}`);
                 }
+                
                 const data = await response.json();
                 if (data.geometry && data.geometry.coordinates) {
                     setIsochrone(data.geometry.coordinates[0]);
