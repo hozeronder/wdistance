@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app/api/helloNextJs"; // Next.js backend API route
+const API_URL = "https://wdistancebackend.vercel.app"; // Next.js backend API route
 
 import PropTypes from "prop-types";
 
