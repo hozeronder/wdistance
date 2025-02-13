@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app/isochrone"; // FastAPI endpoint'i direkt kullanıyoruz.
+const API_URL = "https://wdistancebackend.vercel.app/api"; // /api prefix'i eklendi
 
 import PropTypes from "prop-types";
 
@@ -22,6 +22,7 @@ function LocationMarker({ setIsochrone }) {
                     method: 'GET',
                     headers: {
                         'Accept': 'application/json',
+                        'Content-Type': 'application/json',
                     },
                 });
 
@@ -30,6 +31,7 @@ function LocationMarker({ setIsochrone }) {
                 }
 
                 const data = await response.json();
+                console.log('Response data:', data); // Debug için
                 if (data.geometry && data.geometry.coordinates) {
                     setIsochrone(data.geometry.coordinates[0]);
                 }
