@@ -54,7 +54,7 @@ export default function IsochroneMap() {
     const [isochrone, setIsochrone] = useState([]);
 
     return (
-        <MapContainer center={[40.73061, -73.935242]} zoom={13} style={{ height: "100vh", width: "100%" }}>
+        <MapContainer center={[40.73061, -73.935242]} zoom={13} style={{ height: "100%", width: "100vh" }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <LocationMarker setIsochrone={setIsochrone} />
             {isochrone.length > 0 && <Polygon positions={isochrone} color="blue" />}
