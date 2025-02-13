@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-le
 import "leaflet/dist/leaflet.css";
 import PropTypes from "prop-types";
 
-const API_URL = "/api/helloNextJs"; // Next.js API route'unu kullan
+const API_URL = "/api/helloNextJs"; // Başında "/" olduğundan emin olun
 
 function LocationMarker({ setIsochrone }) {
     const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
