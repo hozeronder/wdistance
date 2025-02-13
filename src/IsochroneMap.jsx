@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
-
-const API_URL = "https://wdistancebackend.vercel.app/api/isochrone"; // Tam endpoint yolunu belirttik
-
 import PropTypes from "prop-types";
 
+const API_URL = "/api/helloNextJs"; // Next.js API route'unu kullan
 
 function LocationMarker({ setIsochrone }) {
     const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
@@ -20,13 +18,7 @@ function LocationMarker({ setIsochrone }) {
         async function fetchIsochrone() {
             if (!position) return;
             try {
-                const response = await fetch(`${API_URL}?lat=${position[0]}&lng=${position[1]}`, {
-                    method: 'GET',
-                    headers: {
-                        'Accept': 'application/json',
-                        'Content-Type': 'application/json',
-                    },
-                });
+                const response = await fetch(`${API_URL}?lat=${position[0]}&lng=${position[1]}`);
 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
