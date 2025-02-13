@@ -14,6 +14,7 @@ function LocationMarker({ setIsochrone }) {
         },
     });
 
+
     useEffect(() => {
         async function fetchIsochrone() {
             if (!position) return;
