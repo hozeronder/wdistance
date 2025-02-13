@@ -1,9 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true
-  },
-  // Diğer ayarlar...
+  reactStrictMode: true,
+  swcMinify: true,
   async rewrites() {
     return [
       {
