@@ -2,9 +2,10 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://your-backend-url.com/isochrone"; // Backend API URL
+const API_URL = "https://wdistancebackend.vercel.app/api/helloNextJs"; // Next.js backend API route
 
-// eslint-disable-next-line react/prop-types
+import PropTypes from "prop-types";
+
 function LocationMarker({ setIsochrone }) {
     const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
 
@@ -13,12 +14,16 @@ function LocationMarker({ setIsochrone }) {
             setPosition([e.latlng.lat, e.latlng.lng]);
         },
     });
+
     useEffect(() => {
         async function fetchIsochrone() {
             if (!position) return;
             try {
                 const response = await fetch(`${API_URL}?lat=${position[0]}&lng=${position[1]}`);
-                if (!response.ok) throw new Error("Failed to fetch isochrone data");
+                if (!response.ok) {
+                    console.error("Failed to fetch isochrone data:", response.statusText);
+                    return; // Hata fırlatmak yerine sadece fonksiyondan çıkıyoruz
+                }
                 const data = await response.json();
                 if (data.geometry && data.geometry.coordinates) {
                     setIsochrone(data.geometry.coordinates[0]);
@@ -33,6 +38,10 @@ function LocationMarker({ setIsochrone }) {
 
     return <Marker position={position} />;
 }
+
+LocationMarker.propTypes = {
+    setIsochrone: PropTypes.func.isRequired,
+};
 
 export default function IsochroneMap() {
     const [isochrone, setIsochrone] = useState([]);
