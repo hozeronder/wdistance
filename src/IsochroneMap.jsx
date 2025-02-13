@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
-const API_URL = "https://wdistancebackend.vercel.app/api"; // /api prefix'i eklendi
+const API_URL = "https://wdistancebackend.vercel.app/api/isochrone"; // Tam endpoint yolunu belirttik
 
 import PropTypes from "prop-types";
 
@@ -32,7 +32,7 @@ function LocationMarker({ setIsochrone }) {
                 }
 
                 const data = await response.json();
-                console.log('Response data:', data); // Debug için
+                console.log('Response data:', data);
                 if (data.geometry && data.geometry.coordinates) {
                     setIsochrone(data.geometry.coordinates[0]);
                 }
