@@ -18,51 +18,65 @@ function LocationMarker({ setRoads, setPolygon }) {
         async function fetchRoadsAndCompute() {
             if (!position) return;
             try {
-                // Önce yakındaki yolları bul
-                const nearbyRoads = await fetch(
-                    `https://api.mapbox.com/matching/v5/mapbox/driving/${position[1]},${position[0]}?approaches=curb&radius=50&steps=true&access_token=${ACCESS_TOKEN}`
-                );
+                // Overpass API sorgusu - çevredeki yolları al
+                const query = `
+                    [out:json][timeout:25];
+                    way(around:500,${position[0]},${position[1]})["highway"];
+                    (._;>;);
+                    out body;
+                `;
 
-                if (!nearbyRoads.ok) throw new Error("Failed to fetch nearby roads");
-                const nearbyData = await nearbyRoads.json();
+                const response = await fetch('https://overpass-api.de/api/interpreter', {
+                    method: 'POST',
+                    body: query
+                });
+
+                if (!response.ok) throw new Error("Failed to fetch roads");
+                const data = await response.json();
 
                 const roads = [];
                 const boundaryPoints = [];
+                const nodeMap = new Map();
 
-                // Her yol için 500m mesafeye kadar olan kısmı hesapla
-                if (nearbyData.matchings) {
-                    for (const matching of nearbyData.matchings) {
-                        const roadPoints = [];
-                        let cumulativeDistance = 0;
-                        let prevPoint = null;
+                // Önce tüm node'ları map'e ekle
+                data.elements.filter(e => e.type === 'node').forEach(node => {
+                    nodeMap.set(node.id, [node.lat, node.lon]);
+                });
 
-                        for (const coord of matching.geometry.coordinates) {
-                            const point = [coord[1], coord[0]];
+                // Yolları işle
+                const ways = data.elements.filter(e => e.type === 'way');
+                for (const way of ways) {
+                    const roadPoints = [];
+                    let cumulativeDistance = 0;
+                    let prevPoint = [position[0], position[1]]; // Başlangıç noktası
+
+                    // Yoldaki her node'u kontrol et
+                    for (const nodeId of way.nodes) {
+                        const point = nodeMap.get(nodeId);
+                        if (!point) continue;
+
+                        const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
+                        cumulativeDistance += distance;
+
+                        if (cumulativeDistance <= 500) {
+                            roadPoints.push(point);
+                        } else {
+                            // 500m sınırındaki noktayı interpolasyon ile bul
+                            const ratio = (500 - (cumulativeDistance - distance)) / distance;
+                            const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
+                            const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
+                            const finalPoint = [finalLat, finalLng];
                             
-                            if (prevPoint) {
-                                const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
-                                cumulativeDistance += distance;
-
-                                if (cumulativeDistance <= 500) {
-                                    roadPoints.push(point);
-                                } else {
-                                    // 500m sınırındaki noktayı interpolasyon ile bul
-                                    const ratio = (500 - (cumulativeDistance - distance)) / distance;
-                                    const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
-                                    const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
-                                    const finalPoint = [finalLat, finalLng];
-                                    
-                                    roadPoints.push(finalPoint);
-                                    boundaryPoints.push(finalPoint);
-                                    break;
-                                }
-                            }
-                            prevPoint = point;
+                            roadPoints.push(finalPoint);
+                            boundaryPoints.push(finalPoint);
+                            break;
                         }
 
-                        if (roadPoints.length > 1) {
-                            roads.push(roadPoints);
-                        }
+                        prevPoint = point;
+                    }
+
+                    if (roadPoints.length > 1) {
+                        roads.push(roadPoints);
                     }
                 }
 
