@@ -1,11 +1,11 @@
 import { useState, useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
 const ACCESS_TOKEN = "pk.eyJ1Ijoib3plcm9uZGVyIiwiYSI6IlZWdkNxRWMifQ.UBJXKskXlY5DfdXfUUQ9ow";
 
-function LocationMarker({ setIsochrone }) {
+function LocationMarker({ setRoads, setPolygon }) {
     const [position, setPosition] = useState([40.73061, -73.935242]);
 
     useMapEvents({
@@ -15,27 +15,82 @@ function LocationMarker({ setIsochrone }) {
     });
 
     useEffect(() => {
-        async function fetchRoadsAndComputeIsochrone() {
+        async function fetchRoadsAndCompute() {
             if (!position) return;
             try {
-                const response = await fetch(
-                    `https://api.mapbox.com/isochrone/v1/mapbox/driving/${position[1]},${position[0]}?contours_minutes=1&polygons=true&access_token=${ACCESS_TOKEN}`
+                // Önce yakındaki yolları bul
+                const nearbyRoads = await fetch(
+                    `https://api.mapbox.com/matching/v5/mapbox/driving/${position[1]},${position[0]}?approaches=curb&radius=50&steps=true&access_token=${ACCESS_TOKEN}`
                 );
 
-                if (!response.ok) throw new Error("Failed to fetch isochrone data");
-                const data = await response.json();
+                if (!nearbyRoads.ok) throw new Error("Failed to fetch nearby roads");
+                const nearbyData = await nearbyRoads.json();
 
-                if (data.features && data.features.length > 0) {
-                    const coordinates = data.features[0].geometry.coordinates[0].map(coord => [coord[1], coord[0]]);
-                    setIsochrone(coordinates);
+                const roads = [];
+                const boundaryPoints = [];
+
+                // Her yol için 500m mesafeye kadar olan kısmı hesapla
+                if (nearbyData.matchings) {
+                    for (const matching of nearbyData.matchings) {
+                        const roadPoints = [];
+                        let cumulativeDistance = 0;
+                        let prevPoint = null;
+
+                        for (const coord of matching.geometry.coordinates) {
+                            const point = [coord[1], coord[0]];
+                            
+                            if (prevPoint) {
+                                const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
+                                cumulativeDistance += distance;
+
+                                if (cumulativeDistance <= 500) {
+                                    roadPoints.push(point);
+                                } else {
+                                    // 500m sınırındaki noktayı interpolasyon ile bul
+                                    const ratio = (500 - (cumulativeDistance - distance)) / distance;
+                                    const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
+                                    const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
+                                    const finalPoint = [finalLat, finalLng];
+                                    
+                                    roadPoints.push(finalPoint);
+                                    boundaryPoints.push(finalPoint);
+                                    break;
+                                }
+                            }
+                            prevPoint = point;
+                        }
+
+                        if (roadPoints.length > 1) {
+                            roads.push(roadPoints);
+                        }
+                    }
                 }
+
+                // Sınır noktalarından polygon oluştur
+                if (boundaryPoints.length > 2) {
+                    const center = [
+                        boundaryPoints.reduce((sum, p) => sum + p[0], 0) / boundaryPoints.length,
+                        boundaryPoints.reduce((sum, p) => sum + p[1], 0) / boundaryPoints.length
+                    ];
+
+                    // Noktaları saat yönünde sırala
+                    boundaryPoints.sort((a, b) => {
+                        const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
+                        const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
+                        return angleA - angleB;
+                    });
+
+                    setPolygon(boundaryPoints);
+                }
+
+                setRoads(roads);
             } catch (error) {
-                console.error("Error fetching isochrone data:", error);
+                console.error("Error:", error);
             }
         }
 
-        fetchRoadsAndComputeIsochrone();
-    }, [position, setIsochrone]);
+        fetchRoadsAndCompute();
+    }, [position, setRoads, setPolygon]);
 
     return <Marker position={position} />;
 }
@@ -119,13 +174,28 @@ function smoothPoints(points, tension = 0.3) {
 }
 
 export default function IsochroneMap() {
-    const [isochrone, setIsochrone] = useState([]);
+    const [roads, setRoads] = useState([]);
+    const [polygon, setPolygon] = useState([]);
 
     return (
         <MapContainer center={[40.73061, -73.935242]} zoom={13} style={{ height: "100vh", width: "100%" }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            <LocationMarker setIsochrone={setIsochrone} />
-            {isochrone.length > 0 && <Polygon positions={isochrone} color="blue" fillOpacity={0.2} />}
+            <LocationMarker setRoads={setRoads} setPolygon={setPolygon} />
+            
+            {/* Yolları mavi çizgilerle göster */}
+            {roads.map((road, i) => (
+                <Polyline key={i} positions={road} color="blue" weight={3} />
+            ))}
+            
+            {/* Sınır polygonunu sarı renkle göster */}
+            {polygon.length > 0 && (
+                <Polygon 
+                    positions={polygon} 
+                    color="yellow" 
+                    weight={2}
+                    fill={false}
+                />
+            )}
         </MapContainer>
     );
 }
