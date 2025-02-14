@@ -20,65 +20,78 @@ function LocationMarker({ setIsochrone }) {
         async function fetchRoadsAndComputeIsochrone() {
             if (!position) return;
             try {
-                // 500 metre yaklaşık 0.005 derece olduğu için, etrafındaki alanı kapsayacak şekilde sorgu yapıyoruz
-                const radius = 0.005;
-                const points = [];
+                // Önce seçilen noktanın etrafındaki tüm yolları al (daha geniş bir alan için 0.01 derece)
+                const searchRadius = 0.01;
+                const points = new Set(); // Tekrarlayan noktaları önlemek için Set kullan
                 
-                // Ana yönlerde noktalar oluştur (8 yön)
-                for (let angle = 0; angle < 360; angle += 45) {
-                    const lng = position[1] + radius * Math.cos((angle * Math.PI) / 180);
-                    const lat = position[0] + radius * Math.sin((angle * Math.PI) / 180);
-                    
-                    // Her yön için yol bilgisini al
-                    const response = await fetch(
-                        `${API_URL}/${position[1]},${position[0]};${lng},${lat}?geometries=geojson&access_token=${ACCESS_TOKEN}`
-                    );
-                    
-                    if (!response.ok) throw new Error("Failed to fetch road data");
-                    const data = await response.json();
+                // Çevredeki yolları almak için bbox (bounding box) kullan
+                const bbox = `${position[1] - searchRadius},${position[0] - searchRadius},${position[1] + searchRadius},${position[0] + searchRadius}`;
+                const nearbyRoadsResponse = await fetch(
+                    `https://api.mapbox.com/matching/v5/mapbox/driving/${position[1]},${position[0]}?geometries=geojson&radiuses=50&access_token=${ACCESS_TOKEN}`
+                );
 
-                    if (data.routes && data.routes.length > 0) {
-                        // Rotadaki her nokta için mesafe kontrolü yap
-                        const coordinates = data.routes[0].geometry.coordinates;
-                        let cumulativeDistance = 0;
-                        let prevCoord = null;
+                if (!nearbyRoadsResponse.ok) throw new Error("Failed to fetch nearby roads");
+                const nearbyRoadsData = await nearbyRoadsResponse.json();
 
-                        for (const coord of coordinates) {
-                            if (prevCoord) {
-                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
-                                    .distanceTo(L.latLng(coord[1], coord[0]));
-                                cumulativeDistance += segmentDistance;
+                // Yakındaki her yol segmenti için
+                if (nearbyRoadsData.matchings) {
+                    for (const matching of nearbyRoadsData.matchings) {
+                        const roadCoords = matching.geometry.coordinates;
+                        
+                        // Yolun başlangıç noktasından 500m mesafeye kadar olan noktaları bul
+                        const response = await fetch(
+                            `${API_URL}/${position[1]},${position[0]};${roadCoords[roadCoords.length-1][0]},${roadCoords[roadCoords.length-1][1]}?geometries=geojson&access_token=${ACCESS_TOKEN}`
+                        );
 
-                                // 500 metre sınırını kontrol et
-                                if (cumulativeDistance <= 500) {
-                                    points.push(coord);
-                                } else {
-                                    // Son geçerli noktayı interpolasyon ile bul
-                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
-                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
-                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
-                                    points.push([finalLng, finalLat]);
-                                    break;
+                        if (!response.ok) throw new Error("Failed to fetch route data");
+                        const data = await response.json();
+
+                        if (data.routes && data.routes.length > 0) {
+                            const coordinates = data.routes[0].geometry.coordinates;
+                            let cumulativeDistance = 0;
+                            let prevCoord = null;
+
+                            for (const coord of coordinates) {
+                                if (prevCoord) {
+                                    const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
+                                        .distanceTo(L.latLng(coord[1], coord[0]));
+                                    cumulativeDistance += segmentDistance;
+
+                                    if (cumulativeDistance <= 500) {
+                                        points.add(JSON.stringify(coord)); // Set'e eklemek için stringe çevir
+                                    } else {
+                                        // 500m sınırındaki noktayı interpolasyon ile bul
+                                        const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
+                                        const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
+                                        const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
+                                        points.add(JSON.stringify([finalLng, finalLat]));
+                                        break;
+                                    }
                                 }
+                                prevCoord = coord;
                             }
-                            prevCoord = coord;
                         }
                     }
                 }
 
-                // Noktaları saat yönünde sırala (daha düzgün bir polygon için)
-                const center = [
-                    points.reduce((sum, p) => sum + p[1], 0) / points.length,
-                    points.reduce((sum, p) => sum + p[0], 0) / points.length
-                ];
-                
-                points.sort((a, b) => {
-                    const angleA = Math.atan2(a[1] - center[0], a[0] - center[1]);
-                    const angleB = Math.atan2(b[1] - center[0], b[0] - center[1]);
-                    return angleA - angleB;
-                });
+                // Set'ten array'e çevir ve parse et
+                const uniquePoints = Array.from(points).map(p => JSON.parse(p));
 
-                setIsochrone(points);
+                // Noktaları saat yönünde sırala
+                if (uniquePoints.length > 0) {
+                    const center = [
+                        uniquePoints.reduce((sum, p) => sum + p[1], 0) / uniquePoints.length,
+                        uniquePoints.reduce((sum, p) => sum + p[0], 0) / uniquePoints.length
+                    ];
+                    
+                    uniquePoints.sort((a, b) => {
+                        const angleA = Math.atan2(a[1] - center[0], a[0] - center[1]);
+                        const angleB = Math.atan2(b[1] - center[0], b[0] - center[1]);
+                        return angleA - angleB;
+                    });
+                }
+
+                setIsochrone(uniquePoints);
             } catch (error) {
                 console.error("Error fetching road data:", error);
             }
