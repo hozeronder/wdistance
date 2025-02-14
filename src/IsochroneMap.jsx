@@ -18,10 +18,13 @@ function LocationMarker({ setRoads, setPolygon }) {
         async function fetchRoadsAndCompute() {
             if (!position) return;
             try {
-                // Overpass API sorgusu - çevredeki yolları al
+                // Yaya yollarını içeren genişletilmiş sorgu
                 const query = `
                     [out:json][timeout:25];
-                    way(around:500,${position[0]},${position[1]})["highway"];
+                    (
+                        way(around:500,${position[0]},${position[1]})["highway"~"^(footway|pedestrian|path|steps|corridor|crossing|sidewalk|residential|service|unclassified|living_street)$"];
+                        way(around:500,${position[0]},${position[1]})["foot"="yes"];
+                    );
                     (._;>;);
                     out body;
                 `;
@@ -37,64 +40,75 @@ function LocationMarker({ setRoads, setPolygon }) {
                 const roads = [];
                 const boundaryPoints = [];
                 const nodeMap = new Map();
+                const processedWays = new Set(); // İşlenmiş yolları takip et
 
                 // Önce tüm node'ları map'e ekle
                 data.elements.filter(e => e.type === 'node').forEach(node => {
                     nodeMap.set(node.id, [node.lat, node.lon]);
                 });
 
-                // Yolları işle
+                // Her yol için en yakın başlangıç noktasını bul
                 const ways = data.elements.filter(e => e.type === 'way');
                 for (const way of ways) {
-                    const roadPoints = [];
-                    let cumulativeDistance = 0;
-                    let prevPoint = [position[0], position[1]]; // Başlangıç noktası
+                    if (processedWays.has(way.id)) continue;
+                    processedWays.add(way.id);
 
-                    // Yoldaki her node'u kontrol et
-                    for (const nodeId of way.nodes) {
-                        const point = nodeMap.get(nodeId);
-                        if (!point) continue;
+                    // Yolun tüm noktalarını al
+                    const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
+                    if (wayPoints.length < 2) continue;
 
-                        const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
-                        cumulativeDistance += distance;
+                    // Başlangıç noktasına en yakın noktayı bul
+                    let minDistance = Infinity;
+                    let startIndex = 0;
+                    wayPoints.forEach((point, index) => {
+                        const dist = L.latLng(position).distanceTo(L.latLng(point));
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            startIndex = index;
+                        }
+                    });
 
-                        if (cumulativeDistance <= 500) {
-                            roadPoints.push(point);
-                        } else {
-                            // 500m sınırındaki noktayı interpolasyon ile bul
-                            const ratio = (500 - (cumulativeDistance - distance)) / distance;
-                            const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
-                            const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
-                            const finalPoint = [finalLat, finalLng];
-                            
-                            roadPoints.push(finalPoint);
-                            boundaryPoints.push(finalPoint);
-                            break;
+                    // İki yönde de yolu takip et (ileri ve geri)
+                    const directions = [
+                        wayPoints.slice(startIndex),
+                        wayPoints.slice(0, startIndex + 1).reverse()
+                    ];
+
+                    for (const directionPoints of directions) {
+                        const roadPoints = [];
+                        let cumulativeDistance = 0;
+                        let prevPoint = [position[0], position[1]];
+
+                        for (const point of directionPoints) {
+                            const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
+                            cumulativeDistance += distance;
+
+                            if (cumulativeDistance <= 500) {
+                                roadPoints.push(point);
+                            } else {
+                                // 500m sınırındaki noktayı interpolasyon ile bul
+                                const ratio = (500 - (cumulativeDistance - distance)) / distance;
+                                const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
+                                const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
+                                const finalPoint = [finalLat, finalLng];
+                                
+                                roadPoints.push(finalPoint);
+                                boundaryPoints.push(finalPoint);
+                                break;
+                            }
+                            prevPoint = point;
                         }
 
-                        prevPoint = point;
-                    }
-
-                    if (roadPoints.length > 1) {
-                        roads.push(roadPoints);
+                        if (roadPoints.length > 1) {
+                            roads.push(roadPoints);
+                        }
                     }
                 }
 
                 // Sınır noktalarından polygon oluştur
                 if (boundaryPoints.length > 2) {
-                    const center = [
-                        boundaryPoints.reduce((sum, p) => sum + p[0], 0) / boundaryPoints.length,
-                        boundaryPoints.reduce((sum, p) => sum + p[1], 0) / boundaryPoints.length
-                    ];
-
-                    // Noktaları saat yönünde sırala
-                    boundaryPoints.sort((a, b) => {
-                        const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
-                        const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
-                        return angleA - angleB;
-                    });
-
-                    setPolygon(boundaryPoints);
+                    const smoothedBoundary = smoothPoints(computeConvexHull(boundaryPoints));
+                    setPolygon(smoothedBoundary);
                 }
 
                 setRoads(roads);
