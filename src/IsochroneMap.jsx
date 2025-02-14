@@ -1,49 +1,37 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import "leaflet-routing-machine";
 
-const MAX_DISTANCE = 500; // 500 metre
+const MAPBOX_ACCESS_TOKEN = "pk.eyJ1Ijoib3plcm9uZGVyIiwiYSI6IlZWdkNxRWMifQ.UBJXKskXlY5DfdXfUUQ9ow";
+const API_URL = "https://api.mapbox.com/directions/v5/mapbox/driving";
 
 function LocationMarker({ setIsochrone }) {
-    const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum (New York)
+    const [position, setPosition] = useState([40.73061, -73.935242]);
 
     useMapEvents({
         click(e) {
-            setPosition([e.latlng.lat, e.latlng.lng]);
+            const newPosition = [e.latlng.lat, e.latlng.lng];
+            setPosition(newPosition);
+            fetchIsochrone(newPosition, setIsochrone);
         },
     });
 
-    useEffect(() => {
-        async function fetchRoutes() {
-            if (!position) return;
-
-            const map = L.map(document.createElement("div"));
-            const routingControl = L.Routing.control({
-                waypoints: [L.latLng(position[0], position[1])],
-                createMarker: () => null,
-                router: L.Routing.osrmv1({
-                    serviceUrl: "https://router.project-osrm.org/route/v1"
-                }),
-            }).addTo(map);
-
-            routingControl.on("routesfound", function (e) {
-                const routes = e.routes[0].coordinates;
-                const filteredPoints = routes.filter(point => {
-                    const distance = L.latLng(position).distanceTo([point.lat, point.lng]);
-                    return distance <= MAX_DISTANCE;
-                });
-                setIsochrone(filteredPoints.map(p => [p.lat, p.lng]));
-            });
-
-            return () => map.remove();
-        }
-
-        fetchRoutes();
-    }, [position, setIsochrone]);
-
     return <Marker position={position} />;
+}
+
+async function fetchIsochrone(position, setIsochrone) {
+    try {
+        const response = await fetch(
+            `${API_URL}/${position[1]},${position[0]};${position[1] + 0.005},${position[0] + 0.005}?geometries=geojson&access_token=${MAPBOX_ACCESS_TOKEN}`
+        );
+        if (!response.ok) throw new Error("Failed to fetch route");
+        const data = await response.json();
+        const coordinates = data.routes[0].geometry.coordinates.map(coord => [coord[1], coord[0]]);
+        setIsochrone(coordinates);
+    } catch (error) {
+        console.error("Error fetching isochrone:", error);
+    }
 }
 
 export default function IsochroneMap() {
