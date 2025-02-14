@@ -21,49 +21,71 @@ function LocationMarker({ setIsochrone }) {
             if (!position) return;
             try {
                 const points = new Set(); // Tekrarlayan noktaları önlemek için Set kullan
-                const searchRadius = 0.005; // Yaklaşık 500m
-                
-                // Çevrede 16 farklı yönde noktalar oluştur (daha fazla yol yakalamak için)
-                const directions = 16;
-                for (let i = 0; i < directions; i++) {
-                    const angle = (2 * Math.PI * i) / directions;
-                    const destLng = position[1] + searchRadius * Math.cos(angle);
-                    const destLat = position[0] + searchRadius * Math.sin(angle);
+                const visitedSegments = new Set(); // Ziyaret edilen yol segmentlerini takip et
+
+                // Başlangıç noktasından yolları al
+                const initialResponse = await fetch(
+                    `https://api.mapbox.com/directions/v5/mapbox/driving/${position[1]},${position[0]}?approaches=curb&geometries=geojson&overview=full&access_token=${ACCESS_TOKEN}`
+                );
+
+                if (!initialResponse.ok) throw new Error("Failed to fetch initial roads");
+                const initialData = await initialResponse.json();
+
+                // Recursive olarak yolları takip et
+                async function exploreRoad(startPoint, remainingDistance, visited) {
+                    if (remainingDistance <= 0) return;
                     
-                    // Her yön için rota hesapla
+                    // Bu noktadan çıkan yolları bul
                     const response = await fetch(
-                        `${API_URL}/${position[1]},${position[0]};${destLng},${destLat}?geometries=geojson&access_token=${ACCESS_TOKEN}`
+                        `${API_URL}/${startPoint[0]},${startPoint[1]}?approaches=curb&geometries=geojson&overview=full&access_token=${ACCESS_TOKEN}`
                     );
 
-                    if (!response.ok) throw new Error("Failed to fetch route data");
+                    if (!response.ok) return;
                     const data = await response.json();
 
-                    if (data.routes && data.routes.length > 0) {
-                        const coordinates = data.routes[0].geometry.coordinates;
+                    if (!data.routes || !data.routes.length) return;
+
+                    for (const route of data.routes) {
+                        const coordinates = route.geometry.coordinates;
                         let cumulativeDistance = 0;
-                        let prevCoord = null;
+                        let prevCoord = [startPoint[0], startPoint[1]];
 
-                        for (const coord of coordinates) {
-                            if (prevCoord) {
-                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
-                                    .distanceTo(L.latLng(coord[1], coord[0]));
-                                cumulativeDistance += segmentDistance;
+                        for (let i = 1; i < coordinates.length; i++) {
+                            const coord = coordinates[i];
+                            const segmentKey = `${prevCoord[0]},${prevCoord[1]}-${coord[0]},${coord[1]}`;
+                            
+                            // Bu segment daha önce ziyaret edildi mi?
+                            if (visitedSegments.has(segmentKey)) continue;
+                            visitedSegments.add(segmentKey);
 
-                                if (cumulativeDistance <= 500) {
-                                    points.add(JSON.stringify(coord));
-                                } else {
-                                    // 500m sınırındaki noktayı interpolasyon ile bul
-                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
-                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
-                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
-                                    points.add(JSON.stringify([finalLng, finalLat]));
-                                    break;
-                                }
+                            const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
+                                .distanceTo(L.latLng(coord[1], coord[0]));
+                            cumulativeDistance += segmentDistance;
+
+                            if (cumulativeDistance <= remainingDistance) {
+                                points.add(JSON.stringify(coord));
+                                
+                                // Bu noktadan dallanmaları araştır
+                                await exploreRoad(
+                                    coord,
+                                    remainingDistance - cumulativeDistance,
+                                    new Set([...visited, segmentKey])
+                                );
+                            } else {
+                                // Son geçerli noktayı interpolasyon ile bul
+                                const ratio = (remainingDistance - (cumulativeDistance - segmentDistance)) / segmentDistance;
+                                const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
+                                const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
+                                points.add(JSON.stringify([finalLng, finalLat]));
                             }
+
                             prevCoord = coord;
                         }
                     }
                 }
+
+                // Başlangıç noktasından aramayı başlat
+                await exploreRoad([position[1], position[0]], 500, new Set());
 
                 // Set'ten array'e çevir ve parse et
                 const uniquePoints = Array.from(points).map(p => JSON.parse(p));
