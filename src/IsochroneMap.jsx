@@ -2,13 +2,11 @@ import { useState, useEffect } from "react";
 import { MapContainer, TileLayer, Marker, Polygon, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import "leaflet-routing-machine";
 
-const API_URL = "https://api.mapbox.com/directions/v5/mapbox/driving"; // Ücretli API servisini burada kullan
-const ACCESS_TOKEN = "pk.eyJ1Ijoib3plcm9uZGVyIiwiYSI6IlZWdkNxRWMifQ.UBJXKskXlY5DfdXfUUQ9ow"; // Mapbox veya başka bir hizmetin erişim anahtarı
+const ACCESS_TOKEN = "pk.eyJ1Ijoib3plcm9uZGVyIiwiYSI6IlZWdkNxRWMifQ.UBJXKskXlY5DfdXfUUQ9ow";
 
 function LocationMarker({ setIsochrone }) {
-    const [position, setPosition] = useState([40.73061, -73.935242]); // Varsayılan konum
+    const [position, setPosition] = useState([40.73061, -73.935242]);
 
     useMapEvents({
         click(e) {
@@ -20,78 +18,19 @@ function LocationMarker({ setIsochrone }) {
         async function fetchRoadsAndComputeIsochrone() {
             if (!position) return;
             try {
-                const points = new Set();
-                
-                // 16 farklı yönde 500m mesafede noktalar oluştur
-                const directions = 16;
-                const radius = 0.005; // yaklaşık 500m
+                const response = await fetch(
+                    `https://api.mapbox.com/isochrone/v1/mapbox/driving/${position[1]},${position[0]}?contours_minutes=1&polygons=true&access_token=${ACCESS_TOKEN}`
+                );
 
-                for (let i = 0; i < directions; i++) {
-                    const angle = (2 * Math.PI * i) / directions;
-                    const destLng = position[1] + radius * Math.cos(angle);
-                    const destLat = position[0] + radius * Math.sin(angle);
-                    
-                    // OSRM ile rota hesapla
-                    const response = await fetch(
-                        `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?geometries=geojson&overview=full`
-                    );
+                if (!response.ok) throw new Error("Failed to fetch isochrone data");
+                const data = await response.json();
 
-                    if (!response.ok) continue;
-                    const data = await response.json();
-
-                    if (data.routes && data.routes.length > 0) {
-                        const coordinates = data.routes[0].geometry.coordinates;
-                        let cumulativeDistance = 0;
-                        let prevCoord = null;
-
-                        for (const coord of coordinates) {
-                            if (prevCoord) {
-                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
-                                    .distanceTo(L.latLng(coord[1], coord[0]));
-                                cumulativeDistance += segmentDistance;
-
-                                if (cumulativeDistance <= 500) {
-                                    points.add(JSON.stringify(coord));
-                                } else {
-                                    // Son geçerli noktayı interpolasyon ile bul
-                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
-                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
-                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
-                                    points.add(JSON.stringify([finalLng, finalLat]));
-                                    break;
-                                }
-                            }
-                            prevCoord = coord;
-                        }
-
-                        // Yol kesişimlerini kontrol et
-                        const nearbyResponse = await fetch(
-                            `https://router.project-osrm.org/nearest/v1/driving/${coordinates[Math.floor(coordinates.length/2)][0]},${coordinates[Math.floor(coordinates.length/2)][1]}?number=3`
-                        );
-                        
-                        if (nearbyResponse.ok) {
-                            const nearbyData = await nearbyResponse.json();
-                            if (nearbyData.waypoints) {
-                                for (const waypoint of nearbyData.waypoints) {
-                                    points.add(JSON.stringify([waypoint.location[0], waypoint.location[1]]));
-                                }
-                            }
-                        }
-                    }
+                if (data.features && data.features.length > 0) {
+                    const coordinates = data.features[0].geometry.coordinates[0].map(coord => [coord[1], coord[0]]);
+                    setIsochrone(coordinates);
                 }
-
-                // Set'ten array'e çevir ve parse et
-                const uniquePoints = Array.from(points).map(p => JSON.parse(p));
-
-                // Convex Hull hesaplama
-                const hull = computeConvexHull(uniquePoints);
-
-                // Sınır noktalarını yumuşat
-                const smoothedHull = smoothPoints(hull, 0.3);
-
-                setIsochrone(smoothedHull);
             } catch (error) {
-                console.error("Error fetching road data:", error);
+                console.error("Error fetching isochrone data:", error);
             }
         }
 
@@ -186,7 +125,7 @@ export default function IsochroneMap() {
         <MapContainer center={[40.73061, -73.935242]} zoom={13} style={{ height: "100vh", width: "100%" }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <LocationMarker setIsochrone={setIsochrone} />
-            {isochrone.length > 0 && <Polygon positions={isochrone.map(coord => [coord[1], coord[0]])} color="blue" />}
+            {isochrone.length > 0 && <Polygon positions={isochrone} color="blue" fillOpacity={0.2} />}
         </MapContainer>
     );
 }
