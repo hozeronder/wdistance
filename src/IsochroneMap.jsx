@@ -21,38 +21,61 @@ function LocationMarker({ setIsochrone }) {
             if (!position) return;
             try {
                 const points = new Set();
-                const gridSize = 0.002; // Yaklaşık 200m grid aralığı
-                const maxDistance = 500; // metre cinsinden
                 
-                // Çevredeki grid noktalarını oluştur
-                const gridPoints = [];
-                for (let lat = position[0] - 0.01; lat <= position[0] + 0.01; lat += gridSize) {
-                    for (let lng = position[1] - 0.01; lng <= position[1] + 0.01; lng += gridSize) {
-                        gridPoints.push([lng, lat]);
-                    }
-                }
+                // 16 farklı yönde 500m mesafede noktalar oluştur
+                const directions = 16;
+                const radius = 0.005; // yaklaşık 500m
 
-                // Grid noktalarını 25'erli gruplar halinde işle (API limitleri için)
-                for (let i = 0; i < gridPoints.length; i += 25) {
-                    const batch = gridPoints.slice(i, i + 25);
-                    const coordinates = batch.map(p => `${p[0]},${p[1]}`).join(';');
+                for (let i = 0; i < directions; i++) {
+                    const angle = (2 * Math.PI * i) / directions;
+                    const destLng = position[1] + radius * Math.cos(angle);
+                    const destLat = position[0] + radius * Math.sin(angle);
                     
-                    // Matrix API ile mesafeleri hesapla
+                    // OSRM ile rota hesapla
                     const response = await fetch(
-                        `https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${position[1]},${position[0]};${coordinates}?access_token=${ACCESS_TOKEN}`
+                        `https://router.project-osrm.org/route/v1/driving/${position[1]},${position[0]};${destLng},${destLat}?geometries=geojson&overview=full`
                     );
 
                     if (!response.ok) continue;
                     const data = await response.json();
 
-                    // Her grid noktası için mesafeyi kontrol et
-                    for (let j = 1; j < data.durations[0].length; j++) {
-                        const duration = data.durations[0][j];
-                        // Ortalama hız 30 km/s varsayarak mesafeyi hesapla
-                        const distance = duration * (30 * 1000 / 3600);
+                    if (data.routes && data.routes.length > 0) {
+                        const coordinates = data.routes[0].geometry.coordinates;
+                        let cumulativeDistance = 0;
+                        let prevCoord = null;
+
+                        for (const coord of coordinates) {
+                            if (prevCoord) {
+                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
+                                    .distanceTo(L.latLng(coord[1], coord[0]));
+                                cumulativeDistance += segmentDistance;
+
+                                if (cumulativeDistance <= 500) {
+                                    points.add(JSON.stringify(coord));
+                                } else {
+                                    // Son geçerli noktayı interpolasyon ile bul
+                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
+                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
+                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
+                                    points.add(JSON.stringify([finalLng, finalLat]));
+                                    break;
+                                }
+                            }
+                            prevCoord = coord;
+                        }
+
+                        // Yol kesişimlerini kontrol et
+                        const nearbyResponse = await fetch(
+                            `https://router.project-osrm.org/nearest/v1/driving/${coordinates[Math.floor(coordinates.length/2)][0]},${coordinates[Math.floor(coordinates.length/2)][1]}?number=3`
+                        );
                         
-                        if (distance <= maxDistance) {
-                            points.add(JSON.stringify(batch[j - 1]));
+                        if (nearbyResponse.ok) {
+                            const nearbyData = await nearbyResponse.json();
+                            if (nearbyData.waypoints) {
+                                for (const waypoint of nearbyData.waypoints) {
+                                    points.add(JSON.stringify([waypoint.location[0], waypoint.location[1]]));
+                                }
+                            }
                         }
                     }
                 }
@@ -60,7 +83,7 @@ function LocationMarker({ setIsochrone }) {
                 // Set'ten array'e çevir ve parse et
                 const uniquePoints = Array.from(points).map(p => JSON.parse(p));
 
-                // Convex Hull hesaplama (Graham Scan algoritması)
+                // Convex Hull hesaplama
                 const hull = computeConvexHull(uniquePoints);
 
                 // Sınır noktalarını yumuşat
