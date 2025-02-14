@@ -21,98 +21,38 @@ function LocationMarker({ setIsochrone }) {
             if (!position) return;
             try {
                 const points = new Set();
-                const visitedSegments = new Set();
+                const gridSize = 0.002; // Yaklaşık 200m grid aralığı
+                const maxDistance = 500; // metre cinsinden
+                
+                // Çevredeki grid noktalarını oluştur
+                const gridPoints = [];
+                for (let lat = position[0] - 0.01; lat <= position[0] + 0.01; lat += gridSize) {
+                    for (let lng = position[1] - 0.01; lng <= position[1] + 0.01; lng += gridSize) {
+                        gridPoints.push([lng, lat]);
+                    }
+                }
 
-                // Başlangıç noktasından çevredeki yolları bulmak için
-                // 8 farklı yönde 500m uzaklıkta noktalar oluşturup rota hesaplayalım
-                const directions = 8;
-                const searchRadius = 0.005; // yaklaşık 500m
-
-                for (let i = 0; i < directions; i++) {
-                    const angle = (2 * Math.PI * i) / directions;
-                    const destLng = position[1] + searchRadius * Math.cos(angle);
-                    const destLat = position[0] + searchRadius * Math.sin(angle);
-
-                    // Her yön için rota al
+                // Grid noktalarını 25'erli gruplar halinde işle (API limitleri için)
+                for (let i = 0; i < gridPoints.length; i += 25) {
+                    const batch = gridPoints.slice(i, i + 25);
+                    const coordinates = batch.map(p => `${p[0]},${p[1]}`).join(';');
+                    
+                    // Matrix API ile mesafeleri hesapla
                     const response = await fetch(
-                        `${API_URL}/${position[1]},${position[0]};${destLng},${destLat}?geometries=geojson&access_token=${ACCESS_TOKEN}`
+                        `https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${position[1]},${position[0]};${coordinates}?access_token=${ACCESS_TOKEN}`
                     );
 
                     if (!response.ok) continue;
                     const data = await response.json();
 
-                    if (!data.routes || !data.routes.length) continue;
-
-                    // Her rotayı işle
-                    for (const route of data.routes) {
-                        const coordinates = route.geometry.coordinates;
-                        let cumulativeDistance = 0;
-                        let prevCoord = null;
-
-                        for (const coord of coordinates) {
-                            if (prevCoord) {
-                                const segmentKey = `${prevCoord[0]},${prevCoord[1]}-${coord[0]},${coord[1]}`;
-                                
-                                // Bu segment daha önce ziyaret edildi mi?
-                                if (visitedSegments.has(segmentKey)) continue;
-                                visitedSegments.add(segmentKey);
-
-                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
-                                    .distanceTo(L.latLng(coord[1], coord[0]));
-                                cumulativeDistance += segmentDistance;
-
-                                if (cumulativeDistance <= 500) {
-                                    points.add(JSON.stringify(coord));
-
-                                    // Yol kesişim noktalarını kontrol et
-                                    const intersectionResponse = await fetch(
-                                        `${API_URL}/${coord[0]},${coord[1]};${coord[0] + searchRadius},${coord[1]}?geometries=geojson&access_token=${ACCESS_TOKEN}`
-                                    );
-
-                                    if (intersectionResponse.ok) {
-                                        const intersectionData = await intersectionResponse.json();
-                                        if (intersectionData.routes && intersectionData.routes.length > 0) {
-                                            // Kesişim noktasından çıkan yolları işle
-                                            const remainingDistance = 500 - cumulativeDistance;
-                                            const intersectionCoords = intersectionData.routes[0].geometry.coordinates;
-                                            
-                                            let intersectionPrevCoord = coord;
-                                            let intersectionDistance = 0;
-
-                                            for (const intersectionCoord of intersectionCoords) {
-                                                const intersectionSegmentKey = `${intersectionPrevCoord[0]},${intersectionPrevCoord[1]}-${intersectionCoord[0]},${intersectionCoord[1]}`;
-                                                
-                                                if (!visitedSegments.has(intersectionSegmentKey)) {
-                                                    visitedSegments.add(intersectionSegmentKey);
-                                                    
-                                                    const segDist = L.latLng(intersectionPrevCoord[1], intersectionPrevCoord[0])
-                                                        .distanceTo(L.latLng(intersectionCoord[1], intersectionCoord[0]));
-                                                    intersectionDistance += segDist;
-
-                                                    if (intersectionDistance <= remainingDistance) {
-                                                        points.add(JSON.stringify(intersectionCoord));
-                                                    } else {
-                                                        const ratio = (remainingDistance - (intersectionDistance - segDist)) / segDist;
-                                                        const finalLng = intersectionPrevCoord[0] + (intersectionCoord[0] - intersectionPrevCoord[0]) * ratio;
-                                                        const finalLat = intersectionPrevCoord[1] + (intersectionCoord[1] - intersectionPrevCoord[1]) * ratio;
-                                                        points.add(JSON.stringify([finalLng, finalLat]));
-                                                        break;
-                                                    }
-                                                }
-                                                intersectionPrevCoord = intersectionCoord;
-                                            }
-                                        }
-                                    }
-                                } else {
-                                    // Son geçerli noktayı interpolasyon ile bul
-                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
-                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
-                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
-                                    points.add(JSON.stringify([finalLng, finalLat]));
-                                    break;
-                                }
-                            }
-                            prevCoord = coord;
+                    // Her grid noktası için mesafeyi kontrol et
+                    for (let j = 1; j < data.durations[0].length; j++) {
+                        const duration = data.durations[0][j];
+                        // Ortalama hız 30 km/s varsayarak mesafeyi hesapla
+                        const distance = duration * (30 * 1000 / 3600);
+                        
+                        if (distance <= maxDistance) {
+                            points.add(JSON.stringify(batch[j - 1]));
                         }
                     }
                 }
@@ -120,21 +60,13 @@ function LocationMarker({ setIsochrone }) {
                 // Set'ten array'e çevir ve parse et
                 const uniquePoints = Array.from(points).map(p => JSON.parse(p));
 
-                // Noktaları saat yönünde sırala
-                if (uniquePoints.length > 0) {
-                    const center = [
-                        uniquePoints.reduce((sum, p) => sum + p[1], 0) / uniquePoints.length,
-                        uniquePoints.reduce((sum, p) => sum + p[0], 0) / uniquePoints.length
-                    ];
-                    
-                    uniquePoints.sort((a, b) => {
-                        const angleA = Math.atan2(a[1] - center[0], a[0] - center[1]);
-                        const angleB = Math.atan2(b[1] - center[0], b[0] - center[1]);
-                        return angleA - angleB;
-                    });
-                }
+                // Convex Hull hesaplama (Graham Scan algoritması)
+                const hull = computeConvexHull(uniquePoints);
 
-                setIsochrone(uniquePoints);
+                // Sınır noktalarını yumuşat
+                const smoothedHull = smoothPoints(hull, 0.3);
+
+                setIsochrone(smoothedHull);
             } catch (error) {
                 console.error("Error fetching road data:", error);
             }
@@ -144,6 +76,84 @@ function LocationMarker({ setIsochrone }) {
     }, [position, setIsochrone]);
 
     return <Marker position={position} />;
+}
+
+// Convex Hull hesaplama (Graham Scan algoritması)
+function computeConvexHull(points) {
+    if (points.length < 3) return points;
+
+    // En düşük y koordinatlı noktayı bul
+    let bottomPoint = points[0];
+    for (let i = 1; i < points.length; i++) {
+        if (points[i][1] < bottomPoint[1] || 
+            (points[i][1] === bottomPoint[1] && points[i][0] < bottomPoint[0])) {
+            bottomPoint = points[i];
+        }
+    }
+
+    // Noktaları açıya göre sırala
+    const sortedPoints = points
+        .filter(p => p !== bottomPoint)
+        .sort((a, b) => {
+            const angleA = Math.atan2(a[1] - bottomPoint[1], a[0] - bottomPoint[0]);
+            const angleB = Math.atan2(b[1] - bottomPoint[1], b[0] - bottomPoint[0]);
+            return angleA - angleB;
+        });
+
+    // Graham Scan
+    const hull = [bottomPoint];
+    for (const point of sortedPoints) {
+        while (hull.length >= 2) {
+            const p1 = hull[hull.length - 2];
+            const p2 = hull[hull.length - 1];
+            if (crossProduct(p1, p2, point) > 0) break;
+            hull.pop();
+        }
+        hull.push(point);
+    }
+
+    return hull;
+}
+
+// Çapraz çarpım
+function crossProduct(p1, p2, p3) {
+    return (p2[0] - p1[0]) * (p3[1] - p1[1]) - 
+           (p2[1] - p1[1]) * (p3[0] - p1[0]);
+}
+
+// Noktaları yumuşatma
+function smoothPoints(points, tension = 0.3) {
+    if (points.length < 3) return points;
+
+    const smoothed = [];
+    const len = points.length;
+
+    for (let i = 0; i < len; i++) {
+        const p0 = points[(i - 1 + len) % len];
+        const p1 = points[i];
+        const p2 = points[(i + 1) % len];
+        const p3 = points[(i + 2) % len];
+
+        // Catmull-Rom spline
+        for (let t = 0; t < 1; t += 0.1) {
+            const t2 = t * t;
+            const t3 = t2 * t;
+
+            const x = 0.5 * ((2 * p1[0]) +
+                (-p0[0] + p2[0]) * t +
+                (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+                (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+
+            const y = 0.5 * ((2 * p1[1]) +
+                (-p0[1] + p2[1]) * t +
+                (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+                (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+
+            smoothed.push([x, y]);
+        }
+    }
+
+    return smoothed;
 }
 
 export default function IsochroneMap() {
