@@ -20,21 +20,65 @@ function LocationMarker({ setIsochrone }) {
         async function fetchRoadsAndComputeIsochrone() {
             if (!position) return;
             try {
-                // OSRM veya Mapbox ile yakın yolları al
-                const response = await fetch(`${API_URL}/${position[1]},${position[0]};${position[1] + 0.005},${position[0] + 0.005}?geometries=geojson&access_token=${ACCESS_TOKEN}`);
-                if (!response.ok) throw new Error("Failed to fetch road data");
-                const data = await response.json();
+                // 500 metre yaklaşık 0.005 derece olduğu için, etrafındaki alanı kapsayacak şekilde sorgu yapıyoruz
+                const radius = 0.005;
+                const points = [];
+                
+                // Ana yönlerde noktalar oluştur (8 yön)
+                for (let angle = 0; angle < 360; angle += 45) {
+                    const lng = position[1] + radius * Math.cos((angle * Math.PI) / 180);
+                    const lat = position[0] + radius * Math.sin((angle * Math.PI) / 180);
+                    
+                    // Her yön için yol bilgisini al
+                    const response = await fetch(
+                        `${API_URL}/${position[1]},${position[0]};${lng},${lat}?geometries=geojson&access_token=${ACCESS_TOKEN}`
+                    );
+                    
+                    if (!response.ok) throw new Error("Failed to fetch road data");
+                    const data = await response.json();
 
-                // Yolların uç noktalarını belirle
-                const roadEndpoints = data.routes.flatMap(route => route.geometry.coordinates);
+                    if (data.routes && data.routes.length > 0) {
+                        // Rotadaki her nokta için mesafe kontrolü yap
+                        const coordinates = data.routes[0].geometry.coordinates;
+                        let cumulativeDistance = 0;
+                        let prevCoord = null;
 
-                // 500m içinde olan noktaları filtrele
-                const validPoints = roadEndpoints.filter(coord => {
-                    const dist = L.latLng(position[0], position[1]).distanceTo(L.latLng(coord[1], coord[0]));
-                    return dist <= 500;
+                        for (const coord of coordinates) {
+                            if (prevCoord) {
+                                const segmentDistance = L.latLng(prevCoord[1], prevCoord[0])
+                                    .distanceTo(L.latLng(coord[1], coord[0]));
+                                cumulativeDistance += segmentDistance;
+
+                                // 500 metre sınırını kontrol et
+                                if (cumulativeDistance <= 500) {
+                                    points.push(coord);
+                                } else {
+                                    // Son geçerli noktayı interpolasyon ile bul
+                                    const ratio = (500 - (cumulativeDistance - segmentDistance)) / segmentDistance;
+                                    const finalLng = prevCoord[0] + (coord[0] - prevCoord[0]) * ratio;
+                                    const finalLat = prevCoord[1] + (coord[1] - prevCoord[1]) * ratio;
+                                    points.push([finalLng, finalLat]);
+                                    break;
+                                }
+                            }
+                            prevCoord = coord;
+                        }
+                    }
+                }
+
+                // Noktaları saat yönünde sırala (daha düzgün bir polygon için)
+                const center = [
+                    points.reduce((sum, p) => sum + p[1], 0) / points.length,
+                    points.reduce((sum, p) => sum + p[0], 0) / points.length
+                ];
+                
+                points.sort((a, b) => {
+                    const angleA = Math.atan2(a[1] - center[0], a[0] - center[1]);
+                    const angleB = Math.atan2(b[1] - center[0], b[0] - center[1]);
+                    return angleA - angleB;
                 });
 
-                setIsochrone(validPoints);
+                setIsochrone(points);
             } catch (error) {
                 console.error("Error fetching road data:", error);
             }
