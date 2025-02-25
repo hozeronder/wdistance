@@ -62,76 +62,39 @@ function LocationMarker({ setRoads, setPolygon }) {
                     const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
                     if (wayPoints.length < 2) continue;
 
-                    // Başlangıç noktasına en yakın noktayı bul
-                    let minDistance = Infinity;
-                    let startIndex = 0;
-                    wayPoints.forEach((point, index) => {
-                        const dist = L.latLng(position).distanceTo(L.latLng(point));
-                        if (dist < minDistance) {
-                            minDistance = dist;
-                            startIndex = index;
+                    // Yolu küçük segmentlere ayır ve her segmenti kontrol et
+                    for (let i = 0; i < wayPoints.length - 1; i++) {
+                        const startPoint = wayPoints[i];
+                        const endPoint = wayPoints[i + 1];
+                        
+                        // Her iki noktanın da merkeze olan uzaklığını kontrol et
+                        const startDist = L.latLng(position).distanceTo(L.latLng(startPoint));
+                        const endDist = L.latLng(position).distanceTo(L.latLng(endPoint));
+
+                        // Eğer her iki nokta da 500m'den uzaksa, bu segmenti atla
+                        if (startDist > 500 && endDist > 500) continue;
+
+                        // Eğer bir nokta içeride bir nokta dışarıdaysa, kesişim noktasını bul
+                        if ((startDist <= 500 && endDist > 500) || (startDist > 500 && endDist <= 500)) {
+                            const segmentLength = L.latLng(startPoint).distanceTo(L.latLng(endPoint));
+                            const ratio = (500 - startDist) / segmentLength;
+                            
+                            const intersectionLat = startPoint[0] + (endPoint[0] - startPoint[0]) * ratio;
+                            const intersectionLng = startPoint[1] + (endPoint[1] - startPoint[1]) * ratio;
+                            const intersectionPoint = [intersectionLat, intersectionLng];
+
+                            if (startDist <= 500) {
+                                roads.push([startPoint, intersectionPoint]);
+                                boundaryPoints.push(intersectionPoint);
+                            } else {
+                                roads.push([intersectionPoint, endPoint]);
+                                boundaryPoints.push(intersectionPoint);
+                            }
                         }
-                    });
-
-                    // Eğer en yakın nokta bile 500m'den uzaksa, bu yolu atla
-                    if (minDistance > 500) continue;
-
-                    // Kalan mesafeyi hesapla
-                    const remainingDistance = 500 - minDistance;
-
-                    // En yakın noktadan başlayarak her iki yönde kalan mesafe kadar git
-                    const roadPoints = [];
-                    let cumulativeDistance = 0;
-
-                    // İleri yönde git
-                    for (let i = startIndex; i < wayPoints.length; i++) {
-                        const point = wayPoints[i];
-                        if (i === startIndex) {
-                            roadPoints.push(point);
-                            continue;
+                        // Eğer her iki nokta da 500m içindeyse, segmenti olduğu gibi ekle
+                        else if (startDist <= 500 && endDist <= 500) {
+                            roads.push([startPoint, endPoint]);
                         }
-
-                        const distance = L.latLng(wayPoints[i-1]).distanceTo(L.latLng(point));
-                        if (cumulativeDistance + distance <= remainingDistance) {
-                            roadPoints.push(point);
-                            cumulativeDistance += distance;
-                        } else {
-                            // Kalan mesafe sınırındaki noktayı interpolasyon ile bul
-                            const ratio = (remainingDistance - cumulativeDistance) / distance;
-                            const finalLat = wayPoints[i-1][0] + (point[0] - wayPoints[i-1][0]) * ratio;
-                            const finalLng = wayPoints[i-1][1] + (point[1] - wayPoints[i-1][1]) * ratio;
-                            const finalPoint = [finalLat, finalLng];
-                            roadPoints.push(finalPoint);
-                            boundaryPoints.push(finalPoint);
-                            break;
-                        }
-                    }
-
-                    // Geri yönde git
-                    cumulativeDistance = 0;
-                    const reversePoints = [wayPoints[startIndex]];
-                    for (let i = startIndex - 1; i >= 0; i--) {
-                        const point = wayPoints[i];
-                        const distance = L.latLng(wayPoints[i+1]).distanceTo(L.latLng(point));
-                        if (cumulativeDistance + distance <= remainingDistance) {
-                            reversePoints.push(point);
-                            cumulativeDistance += distance;
-                        } else {
-                            // Kalan mesafe sınırındaki noktayı interpolasyon ile bul
-                            const ratio = (remainingDistance - cumulativeDistance) / distance;
-                            const finalLat = wayPoints[i+1][0] + (point[0] - wayPoints[i+1][0]) * ratio;
-                            const finalLng = wayPoints[i+1][1] + (point[1] - wayPoints[i+1][1]) * ratio;
-                            const finalPoint = [finalLat, finalLng];
-                            reversePoints.push(finalPoint);
-                            boundaryPoints.push(finalPoint);
-                            break;
-                        }
-                    }
-
-                    // İki yönden gelen noktaları birleştir
-                    const completeRoad = [...reversePoints.reverse().slice(1), ...roadPoints];
-                    if (completeRoad.length > 1) {
-                        roads.push(completeRoad);
                     }
                 }
 
