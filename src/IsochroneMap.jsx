@@ -62,20 +62,63 @@ function LocationMarker({ setRoads, setPolygon }) {
                     const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
                     if (wayPoints.length < 2) continue;
 
-                    // Her noktanın merkeze olan uzaklığını kontrol et
-                    let withinRange = false;
-                    wayPoints.forEach(point => {
+                    // Başlangıç noktasına en yakın noktayı bul
+                    let minDistance = Infinity;
+                    let startIndex = 0;
+                    wayPoints.forEach((point, index) => {
                         const dist = L.latLng(position).distanceTo(L.latLng(point));
-                        if (dist <= 500) {
-                            withinRange = true;
+                        if (dist < minDistance) {
+                            minDistance = dist;
+                            startIndex = index;
                         }
                     });
 
-                    // Eğer yolun herhangi bir noktası menzil içindeyse, yolu ekle
-                    if (withinRange) {
-                        roads.push(wayPoints);
-                        // Son noktayı sınır noktası olarak ekle
-                        boundaryPoints.push(wayPoints[wayPoints.length - 1]);
+                    // En yakın noktadan başlayarak her iki yönde 500m'lik kısmı al
+                    const roadPoints = [wayPoints[startIndex]];
+                    let cumulativeDistance = 0;
+
+                    // İleri yönde git
+                    for (let i = startIndex + 1; i < wayPoints.length; i++) {
+                        const distance = L.latLng(wayPoints[i-1]).distanceTo(L.latLng(wayPoints[i]));
+                        if (cumulativeDistance + distance <= 500) {
+                            roadPoints.push(wayPoints[i]);
+                            cumulativeDistance += distance;
+                        } else {
+                            // 500m sınırındaki noktayı interpolasyon ile bul
+                            const ratio = (500 - cumulativeDistance) / distance;
+                            const finalLat = wayPoints[i-1][0] + (wayPoints[i][0] - wayPoints[i-1][0]) * ratio;
+                            const finalLng = wayPoints[i-1][1] + (wayPoints[i][1] - wayPoints[i-1][1]) * ratio;
+                            const finalPoint = [finalLat, finalLng];
+                            roadPoints.push(finalPoint);
+                            boundaryPoints.push(finalPoint);
+                            break;
+                        }
+                    }
+
+                    // Geri yönde git
+                    cumulativeDistance = 0;
+                    const reversePoints = [wayPoints[startIndex]];
+                    for (let i = startIndex - 1; i >= 0; i--) {
+                        const distance = L.latLng(wayPoints[i+1]).distanceTo(L.latLng(wayPoints[i]));
+                        if (cumulativeDistance + distance <= 500) {
+                            reversePoints.push(wayPoints[i]);
+                            cumulativeDistance += distance;
+                        } else {
+                            // 500m sınırındaki noktayı interpolasyon ile bul
+                            const ratio = (500 - cumulativeDistance) / distance;
+                            const finalLat = wayPoints[i+1][0] + (wayPoints[i][0] - wayPoints[i+1][0]) * ratio;
+                            const finalLng = wayPoints[i+1][1] + (wayPoints[i][1] - wayPoints[i+1][1]) * ratio;
+                            const finalPoint = [finalLat, finalLng];
+                            reversePoints.push(finalPoint);
+                            boundaryPoints.push(finalPoint);
+                            break;
+                        }
+                    }
+
+                    // İki yönden gelen noktaları birleştir
+                    const completeRoad = [...reversePoints.reverse().slice(1), ...roadPoints];
+                    if (completeRoad.length > 1) {
+                        roads.push(completeRoad);
                     }
                 }
 
