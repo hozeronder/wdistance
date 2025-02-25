@@ -206,7 +206,7 @@ export default function IsochroneMap() {
     const [polygon, setPolygon] = useState([]);
 
     return (
-        <MapContainer center={[40.73061, -73.935242]} zoom={13} style={{ height: "100vh", width: "100%" }}>
+        <MapContainer center={[39.89709760852835, 32.84208856284894]} zoom={13} style={{ height: "100vh", width: "100%" }}>
             <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <LocationMarker setRoads={setRoads} setPolygon={setPolygon} />
             
