@@ -22,8 +22,7 @@ function LocationMarker({ setRoads, setPolygon }) {
                 const query = `
                     [out:json][timeout:25];
                     (
-                        way(around:500,${position[0]},${position[1]})["highway"~"^(footway|pedestrian|path|steps|corridor|crossing|sidewalk|residential|service|unclassified|living_street)$"];
-                        way(around:500,${position[0]},${position[1]})["foot"="yes"];
+                     way(around:500,${position[0]},${position[1]})["foot"="yes"];
                     );
                     (._;>;);
                     out body;
