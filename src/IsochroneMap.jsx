@@ -73,21 +73,33 @@ function LocationMarker({ setRoads, setPolygon }) {
                         }
                     });
 
-                    // En yakın noktadan başlayarak her iki yönde 500m'lik kısmı al
-                    const roadPoints = [wayPoints[startIndex]];
+                    // Eğer en yakın nokta bile 500m'den uzaksa, bu yolu atla
+                    if (minDistance > 500) continue;
+
+                    // Kalan mesafeyi hesapla
+                    const remainingDistance = 500 - minDistance;
+
+                    // En yakın noktadan başlayarak her iki yönde kalan mesafe kadar git
+                    const roadPoints = [];
                     let cumulativeDistance = 0;
 
                     // İleri yönde git
-                    for (let i = startIndex + 1; i < wayPoints.length; i++) {
-                        const distance = L.latLng(wayPoints[i-1]).distanceTo(L.latLng(wayPoints[i]));
-                        if (cumulativeDistance + distance <= 500) {
-                            roadPoints.push(wayPoints[i]);
+                    for (let i = startIndex; i < wayPoints.length; i++) {
+                        const point = wayPoints[i];
+                        if (i === startIndex) {
+                            roadPoints.push(point);
+                            continue;
+                        }
+
+                        const distance = L.latLng(wayPoints[i-1]).distanceTo(L.latLng(point));
+                        if (cumulativeDistance + distance <= remainingDistance) {
+                            roadPoints.push(point);
                             cumulativeDistance += distance;
                         } else {
-                            // 500m sınırındaki noktayı interpolasyon ile bul
-                            const ratio = (500 - cumulativeDistance) / distance;
-                            const finalLat = wayPoints[i-1][0] + (wayPoints[i][0] - wayPoints[i-1][0]) * ratio;
-                            const finalLng = wayPoints[i-1][1] + (wayPoints[i][1] - wayPoints[i-1][1]) * ratio;
+                            // Kalan mesafe sınırındaki noktayı interpolasyon ile bul
+                            const ratio = (remainingDistance - cumulativeDistance) / distance;
+                            const finalLat = wayPoints[i-1][0] + (point[0] - wayPoints[i-1][0]) * ratio;
+                            const finalLng = wayPoints[i-1][1] + (point[1] - wayPoints[i-1][1]) * ratio;
                             const finalPoint = [finalLat, finalLng];
                             roadPoints.push(finalPoint);
                             boundaryPoints.push(finalPoint);
@@ -99,15 +111,16 @@ function LocationMarker({ setRoads, setPolygon }) {
                     cumulativeDistance = 0;
                     const reversePoints = [wayPoints[startIndex]];
                     for (let i = startIndex - 1; i >= 0; i--) {
-                        const distance = L.latLng(wayPoints[i+1]).distanceTo(L.latLng(wayPoints[i]));
-                        if (cumulativeDistance + distance <= 500) {
-                            reversePoints.push(wayPoints[i]);
+                        const point = wayPoints[i];
+                        const distance = L.latLng(wayPoints[i+1]).distanceTo(L.latLng(point));
+                        if (cumulativeDistance + distance <= remainingDistance) {
+                            reversePoints.push(point);
                             cumulativeDistance += distance;
                         } else {
-                            // 500m sınırındaki noktayı interpolasyon ile bul
-                            const ratio = (500 - cumulativeDistance) / distance;
-                            const finalLat = wayPoints[i+1][0] + (wayPoints[i][0] - wayPoints[i+1][0]) * ratio;
-                            const finalLng = wayPoints[i+1][1] + (wayPoints[i][1] - wayPoints[i+1][1]) * ratio;
+                            // Kalan mesafe sınırındaki noktayı interpolasyon ile bul
+                            const ratio = (remainingDistance - cumulativeDistance) / distance;
+                            const finalLat = wayPoints[i+1][0] + (point[0] - wayPoints[i+1][0]) * ratio;
+                            const finalLng = wayPoints[i+1][1] + (point[1] - wayPoints[i+1][1]) * ratio;
                             const finalPoint = [finalLat, finalLng];
                             reversePoints.push(finalPoint);
                             boundaryPoints.push(finalPoint);
