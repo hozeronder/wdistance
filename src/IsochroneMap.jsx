@@ -22,7 +22,13 @@ function LocationMarker({ setRoads, setPolygon }) {
                 const query = `
                     [out:json][timeout:25];
                     (
-                     way(around:500,${position[0]},${position[1]})["foot"="yes"];
+                        way(around:500,${position[0]},${position[1]})["highway"~"^(footway|pedestrian|path|steps|corridor|crossing|sidewalk|residential|service|unclassified|living_street|track|cycleway|bridleway|tertiary|secondary|primary|tertiary_link|secondary_link|primary_link|trunk|trunk_link|motorway_link)$"];
+                        way(around:500,${position[0]},${position[1]})["foot"="yes"];
+                        way(around:500,${position[0]},${position[1]})["foot"="designated"];
+                        way(around:500,${position[0]},${position[1]})["access"="yes"];
+                        way(around:500,${position[0]},${position[1]})["sidewalk"="both"];
+                        way(around:500,${position[0]},${position[1]})["sidewalk"="left"];
+                        way(around:500,${position[0]},${position[1]})["sidewalk"="right"];
                     );
                     (._;>;);
                     out body;
