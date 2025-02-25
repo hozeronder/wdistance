@@ -124,7 +124,8 @@ function LocationMarker({ setRoads, setPolygon }) {
 
                 // Sınır noktalarından polygon oluştur
                 if (boundaryPoints.length > 2) {
-                    const smoothedBoundary = smoothPoints(computeConvexHull(boundaryPoints));
+                    const concaveHull = computeConcaveHull(boundaryPoints);
+                    const smoothedBoundary = smoothPoints(concaveHull);
                     setPolygon(smoothedBoundary);
                 }
 
@@ -140,47 +141,42 @@ function LocationMarker({ setRoads, setPolygon }) {
     return <Marker position={position} />;
 }
 
-// Convex Hull hesaplama (Graham Scan algoritması)
-function computeConvexHull(points) {
+// Alpha shape algoritması için yardımcı fonksiyon
+function computeConcaveHull(points, alpha = 20) {
     if (points.length < 3) return points;
 
-    // En düşük y koordinatlı noktayı bul
-    let bottomPoint = points[0];
+    // Noktaları saat yönünde sırala
+    const center = points.reduce((acc, p) => [acc[0] + p[0]/points.length, acc[1] + p[1]/points.length], [0, 0]);
+    points.sort((a, b) => {
+        const angleA = Math.atan2(a[1] - center[1], a[0] - center[0]);
+        const angleB = Math.atan2(b[1] - center[1], b[0] - center[0]);
+        return angleA - angleB;
+    });
+
+    // Alpha shape algoritması
+    const hull = [];
+    let prev = points[0];
+    hull.push(prev);
+
     for (let i = 1; i < points.length; i++) {
-        if (points[i][1] < bottomPoint[1] || 
-            (points[i][1] === bottomPoint[1] && points[i][0] < bottomPoint[0])) {
-            bottomPoint = points[i];
+        const curr = points[i];
+        const dist = L.latLng(prev).distanceTo(L.latLng(curr));
+        
+        if (dist < alpha) {
+            hull.push(curr);
+            prev = curr;
         }
     }
 
-    // Noktaları açıya göre sırala
-    const sortedPoints = points
-        .filter(p => p !== bottomPoint)
-        .sort((a, b) => {
-            const angleA = Math.atan2(a[1] - bottomPoint[1], a[0] - bottomPoint[0]);
-            const angleB = Math.atan2(b[1] - bottomPoint[1], b[0] - bottomPoint[0]);
-            return angleA - angleB;
-        });
-
-    // Graham Scan
-    const hull = [bottomPoint];
-    for (const point of sortedPoints) {
-        while (hull.length >= 2) {
-            const p1 = hull[hull.length - 2];
-            const p2 = hull[hull.length - 1];
-            if (crossProduct(p1, p2, point) > 0) break;
-            hull.pop();
+    // Son nokta ile ilk noktayı bağla
+    if (hull.length > 2) {
+        const dist = L.latLng(hull[hull.length-1]).distanceTo(L.latLng(hull[0]));
+        if (dist < alpha) {
+            hull.push(hull[0]);
         }
-        hull.push(point);
     }
 
     return hull;
-}
-
-// Çapraz çarpım
-function crossProduct(p1, p2, p3) {
-    return (p2[0] - p1[0]) * (p3[1] - p1[1]) - 
-           (p2[1] - p1[1]) * (p3[0] - p1[0]);
 }
 
 // Noktaları yumuşatma
