@@ -54,49 +54,61 @@ function LocationMarker({ setRoads, setPolygon }) {
 
                 // Her yol için en yakın başlangıç noktasını bul
                 const ways = data.elements.filter(e => e.type === 'way');
-                for (const way of ways) {
-                    if (processedWays.has(way.id)) continue;
-                    processedWays.add(way.id);
+                const nodeConnections = new Map();
+                const allWayPoints = new Set();
 
-                    // Yolun tüm noktalarını al
+                // Önce tüm bağlantıları oluştur
+                ways.forEach(way => {
                     const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
-                    if (wayPoints.length < 2) continue;
-
-                    // Yolu küçük segmentlere ayır ve her segmenti kontrol et
+                    
                     for (let i = 0; i < wayPoints.length - 1; i++) {
-                        const startPoint = wayPoints[i];
-                        const endPoint = wayPoints[i + 1];
+                        const point = wayPoints[i].toString();
+                        const nextPoint = wayPoints[i + 1].toString();
                         
-                        // Her iki noktanın da merkeze olan uzaklığını kontrol et
-                        const startDist = L.latLng(position).distanceTo(L.latLng(startPoint));
-                        const endDist = L.latLng(position).distanceTo(L.latLng(endPoint));
+                        allWayPoints.add(wayPoints[i]);
+                        allWayPoints.add(wayPoints[i + 1]);
 
-                        // Eğer her iki nokta da 500m'den uzaksa, bu segmenti atla
-                        if (startDist > 500 && endDist > 500) continue;
+                        if (!nodeConnections.has(point)) {
+                            nodeConnections.set(point, []);
+                        }
+                        if (!nodeConnections.has(nextPoint)) {
+                            nodeConnections.set(nextPoint, []);
+                        }
 
-                        // Eğer bir nokta içeride bir nokta dışarıdaysa, kesişim noktasını bul
-                        if ((startDist <= 500 && endDist > 500) || (startDist > 500 && endDist <= 500)) {
-                            const segmentLength = L.latLng(startPoint).distanceTo(L.latLng(endPoint));
-                            const ratio = (500 - startDist) / segmentLength;
-                            
-                            const intersectionLat = startPoint[0] + (endPoint[0] - startPoint[0]) * ratio;
-                            const intersectionLng = startPoint[1] + (endPoint[1] - startPoint[1]) * ratio;
-                            const intersectionPoint = [intersectionLat, intersectionLng];
+                        nodeConnections.get(point).push(wayPoints[i + 1]);
+                        nodeConnections.get(nextPoint).push(wayPoints[i]);
+                    }
+                });
 
-                            if (startDist <= 500) {
-                                roads.push([startPoint, intersectionPoint]);
-                                boundaryPoints.push(intersectionPoint);
+                // Mesafeleri hesapla
+                const distances = calculateDistances(position, Array.from(allWayPoints), nodeConnections);
+
+                // Erişilebilir yolları ve sınır noktalarını belirle
+                ways.forEach(way => {
+                    const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
+                    
+                    for (let i = 0; i < wayPoints.length - 1; i++) {
+                        const startDist = distances.get(wayPoints[i].toString());
+                        const endDist = distances.get(wayPoints[i + 1].toString());
+                        
+                        if (!startDist || !endDist) continue;
+
+                        if (startDist <= 500 || endDist <= 500) {
+                            if (startDist <= 500 && endDist <= 500) {
+                                roads.push([wayPoints[i], wayPoints[i + 1]]);
                             } else {
-                                roads.push([intersectionPoint, endPoint]);
+                                // Kesişim noktasını bul
+                                const ratio = (500 - startDist) / (endDist - startDist);
+                                const intersectionPoint = [
+                                    wayPoints[i][0] + (wayPoints[i + 1][0] - wayPoints[i][0]) * ratio,
+                                    wayPoints[i][1] + (wayPoints[i + 1][1] - wayPoints[i][1]) * ratio
+                                ];
+                                roads.push([wayPoints[i], intersectionPoint]);
                                 boundaryPoints.push(intersectionPoint);
                             }
                         }
-                        // Eğer her iki nokta da 500m içindeyse, segmenti olduğu gibi ekle
-                        else if (startDist <= 500 && endDist <= 500) {
-                            roads.push([startPoint, endPoint]);
-                        }
                     }
-                }
+                });
 
                 // Sınır noktalarından polygon oluştur
                 if (boundaryPoints.length > 2) {
@@ -188,6 +200,51 @@ function smoothPoints(points, tension = 0.3) {
     }
 
     return smoothed;
+}
+
+// Dijkstra algoritması ile yol üzerinden mesafe hesaplama
+function calculateDistances(startPoint, wayPoints, nodeConnections) {
+    const distances = new Map();
+    const queue = [];
+    
+    // Başlangıç noktasına en yakın yol noktasını bul
+    let minDist = Infinity;
+    let startNode = null;
+    wayPoints.forEach(point => {
+        const dist = L.latLng(startPoint).distanceTo(L.latLng(point));
+        if (dist < minDist) {
+            minDist = dist;
+            startNode = point;
+        }
+    });
+
+    // Başlangıç noktasını kuyruğa ekle
+    distances.set(startNode.toString(), minDist);
+    queue.push({ point: startNode, distance: minDist });
+
+    while (queue.length > 0) {
+        // En küçük mesafeli noktayı al
+        queue.sort((a, b) => a.distance - b.distance);
+        const current = queue.shift();
+
+        // 500m'den uzaksa bu noktayı atla
+        if (current.distance > 500) continue;
+
+        // Bağlı noktaları kontrol et
+        const connections = nodeConnections.get(current.point.toString()) || [];
+        for (const neighbor of connections) {
+            const segmentDist = L.latLng(current.point).distanceTo(L.latLng(neighbor));
+            const totalDist = current.distance + segmentDist;
+
+            // Eğer daha kısa bir yol bulduysa veya ilk kez ulaşıyorsa
+            if (!distances.has(neighbor.toString()) || totalDist < distances.get(neighbor.toString())) {
+                distances.set(neighbor.toString(), totalDist);
+                queue.push({ point: neighbor, distance: totalDist });
+            }
+        }
+    }
+
+    return distances;
 }
 
 export default function IsochroneMap() {
