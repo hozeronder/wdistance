@@ -6,7 +6,7 @@ import L from "leaflet";
 const ACCESS_TOKEN = "pk.eyJ1Ijoib3plcm9uZGVyIiwiYSI6IlZWdkNxRWMifQ.UBJXKskXlY5DfdXfUUQ9ow";
 
 function LocationMarker({ setRoads, setPolygon }) {
-    const [position, setPosition] = useState([40.73061, -73.935242]);
+    const [position, setPosition] = useState([39.89709760852835, 32.84208856284894]);
 
     useMapEvents({
         click(e) {
@@ -62,51 +62,20 @@ function LocationMarker({ setRoads, setPolygon }) {
                     const wayPoints = way.nodes.map(nodeId => nodeMap.get(nodeId)).filter(Boolean);
                     if (wayPoints.length < 2) continue;
 
-                    // Başlangıç noktasına en yakın noktayı bul
-                    let minDistance = Infinity;
-                    let startIndex = 0;
-                    wayPoints.forEach((point, index) => {
+                    // Her noktanın merkeze olan uzaklığını kontrol et
+                    let withinRange = false;
+                    wayPoints.forEach(point => {
                         const dist = L.latLng(position).distanceTo(L.latLng(point));
-                        if (dist < minDistance) {
-                            minDistance = dist;
-                            startIndex = index;
+                        if (dist <= 500) {
+                            withinRange = true;
                         }
                     });
 
-                    // İki yönde de yolu takip et (ileri ve geri)
-                    const directions = [
-                        wayPoints.slice(startIndex),
-                        wayPoints.slice(0, startIndex + 1).reverse()
-                    ];
-
-                    for (const directionPoints of directions) {
-                        const roadPoints = [];
-                        let cumulativeDistance = 0;
-                        let prevPoint = [position[0], position[1]];
-
-                        for (const point of directionPoints) {
-                            const distance = L.latLng(prevPoint).distanceTo(L.latLng(point));
-                            cumulativeDistance += distance;
-
-                            if (cumulativeDistance <= 500) {
-                                roadPoints.push(point);
-                            } else {
-                                // 500m sınırındaki noktayı interpolasyon ile bul
-                                const ratio = (500 - (cumulativeDistance - distance)) / distance;
-                                const finalLat = prevPoint[0] + (point[0] - prevPoint[0]) * ratio;
-                                const finalLng = prevPoint[1] + (point[1] - prevPoint[1]) * ratio;
-                                const finalPoint = [finalLat, finalLng];
-                                
-                                roadPoints.push(finalPoint);
-                                boundaryPoints.push(finalPoint);
-                                break;
-                            }
-                            prevPoint = point;
-                        }
-
-                        if (roadPoints.length > 1) {
-                            roads.push(roadPoints);
-                        }
+                    // Eğer yolun herhangi bir noktası menzil içindeyse, yolu ekle
+                    if (withinRange) {
+                        roads.push(wayPoints);
+                        // Son noktayı sınır noktası olarak ekle
+                        boundaryPoints.push(wayPoints[wayPoints.length - 1]);
                     }
                 }
 
@@ -217,7 +186,14 @@ export default function IsochroneMap() {
             
             {/* Yolları mavi çizgilerle göster */}
             {roads.map((road, i) => (
-                <Polyline key={i} positions={road} color="blue" weight={3} />
+                <Polyline 
+                    key={i} 
+                    positions={road} 
+                    color="blue" 
+                    weight={4} 
+                    opacity={0.8}
+                    dashArray="5, 10" 
+                />
             ))}
             
             {/* Sınır polygonunu sarı renkle göster */}
