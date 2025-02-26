@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Polygon, useMapEvents } from "react-leaflet";
+import {useEffect, useState} from "react";
+import {Circle, MapContainer, Marker, Polygon, Polyline, TileLayer, useMapEvents} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 
@@ -126,7 +126,19 @@ function LocationMarker({ setRoads, setPolygon }) {
         fetchRoadsAndCompute();
     }, [position, setRoads, setPolygon]);
 
-    return <Marker position={position} />;
+    return (
+        <>
+            <Marker position={position}/>
+            <Circle
+                center={position}
+                radius={500}
+                color="red"
+                weight={2}
+                fill={false}
+                dashArray="5, 10"
+            />
+        </>
+    );
 }
 
 // Alpha shape algoritması için yardımcı fonksiyon
