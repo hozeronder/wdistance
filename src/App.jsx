@@ -1,15 +1,17 @@
-
 import './App.css'
-import IsochroneMap from "./IsochroneMap.jsx";
+import IsochroneMap from './IsochroneMap';
+import CircleMap from './CircleMap';
 
 function App() {
   return (
-    <>
-        <h3>Planlamada Sosyal Donatı Alanlarına Erişim Mesafesi: Mevcut Yöntemin Değerlendirilmesi ve Alternatif Bir Yaklaşım
-        </h3>
-    <IsochroneMap>
-      </IsochroneMap>
-    </>
+    <div style={{ display: 'flex' }}>
+      <div style={{ width: '50%' }}>
+        <IsochroneMap />
+      </div>
+      <div style={{ width: '50%' }}>
+        <CircleMap />
+      </div>
+    </div>
   )
 }
 
